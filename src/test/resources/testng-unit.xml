@@ -9,7 +9,7 @@
 			</run>
 		</groups>
 		<classes>
-			<class name="ws.backpressuredemo.SomeTest" />
+			<class name="ws.backpressuredemo.ServerLayerTest" />
 		</classes>
 	</test>
 	
