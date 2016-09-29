@@ -1,0 +1,16 @@
+<!DOCTYPE suite SYSTEM "http://testng.org/testng-1.0.dtd" >
+
+<suite name="Unit Tests" verbose="5">
+	
+	<test name="unitTests">
+		<groups>
+			<run>
+				<include name="unit" />
+			</run>
+		</groups>
+		<classes>
+			<class name="ws.backpressuredemo.SomeTest" />
+		</classes>
+	</test>
+	
+</suite>

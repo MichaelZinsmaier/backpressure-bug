@@ -1,0 +1,49 @@
+<configuration>
+
+
+    <!-- Property Definitions -->
+    <property resource="logback.properties" />
+    <property name="LOG_DIR" value="${LOG_HOME:-/var/log}" /> <!-- under windows check C:/var/log -->
+
+    <statusListener class="ch.qos.logback.core.status.NopStatusListener" />
+
+    <!-- Console appender -->
+    <appender name="console" class="ch.qos.logback.core.ConsoleAppender">
+        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+            <level>INFO</level>
+        </filter>
+        <encoder>
+            <pattern>
+                %-4relative [%thread] %-5level %logger{30} - %msg%n
+            </pattern>
+        </encoder>
+
+    </appender>
+
+    <!-- most recent ccf log file appender -->
+    <appender name="file" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_DIR}/backpressure-test.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_DIR}/${LOG_NAME_CCF}-%d{yyyy-MM-dd}_%i.zip</fileNamePattern>
+            <timeBasedFileNamingAndTriggeringPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedFNATP">
+                <maxFileSize>10MB</maxFileSize>
+            </timeBasedFileNamingAndTriggeringPolicy>
+            <cleanHistoryOnStart>true</cleanHistoryOnStart>
+            <maxHistory>7</maxHistory>
+        </rollingPolicy>
+        <encoder>
+            <pattern>
+                %-4relative [%thread] %-5level %logger{30} - %msg%n
+            </pattern>
+        </encoder>
+    </appender>
+
+
+    <root level="debug">
+        <appender-ref ref="file" />
+        <appender-ref ref="console" />
+    </root>
+
+
+</configuration>
+
