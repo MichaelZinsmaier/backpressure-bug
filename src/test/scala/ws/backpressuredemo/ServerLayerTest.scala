@@ -56,8 +56,9 @@ class ServerLayerTest extends TestKit(ActorSystem()) with Suite with FlatSpecLik
   implicit val executionContext = system.dispatcher
 
   val wsRequest = WebSocketRequest(Uri("http://narf.de/testUri"))
+  val httpHost = Host("narf.de")
 
-  // define test data  // expected time ~83 seconds | test takes 85 seconds    BUT sending finishes much earlier
+  // define test data  // expected time ~83 seconds | test took 85 seconds
   val chunkSizeByte = 1000
   val testData = createTestData(8)
   val delay = 10.millis
@@ -70,27 +71,30 @@ class ServerLayerTest extends TestKit(ActorSystem()) with Suite with FlatSpecLik
   def testWithoutSockets(): Unit = {
     def httpServerFlow = Flow[HttpRequest].mapAsync(1)(handler)
 
-    val wsMessageSink = Flow[Message]
-      .map(_.asBinaryMessage.getStrictData)
+    val httpDataSink = Flow[HttpResponse]
+      .flatMapConcat(_.entity.dataBytes)
       .map { data =>
         counterEnd.incrementAndGet()
         data
       }
       .toMat(Sink.reduce[ByteString]((a, b) => a.concat(b)))(Keep.right)
 
-    val wsMessageSource = Source.fromIterator(() => testData.grouped(chunkSizeByte)).map { chunk =>
-      BinaryMessage(chunk)
-    }.map { msg =>
-      counterStart.incrementAndGet()
-      msg
+    val httpMessageSource = Source.single {
+      val data = Source.fromIterator(() => testData.grouped(chunkSizeByte)).map { msg =>
+        counterStart.incrementAndGet()
+        msg
+      }
+
+      val reqEntity = HttpEntity(ContentTypes.`application/octet-stream`, data).withoutSizeLimit()
+      HttpRequest(method = HttpMethods.POST, entity = reqEntity)
     }
 
     // concat something that doesn't complete to ensure the in direction stays open
-    val stickyWsMessageSource = wsMessageSource.concatMat(Source.maybe[Message])(Keep.right)
+    val stickyHttpMessageSource = httpMessageSource.concatMat(Source.maybe[HttpRequest])(Keep.right)
 
     // wire the server with the in and out source and run it
     val server = serverLayer.reversed.join(httpServerFlow)
-    val (senderPromise, doneReceiving) = stickyWsMessageSource.viaMat(websocketClientLayer.join(server))(Keep.left).toMat(wsMessageSink)(Keep.both).run()
+    val (senderPromise, doneReceiving) = stickyHttpMessageSource.viaMat(httpClientLayer.join(server))(Keep.left).toMat(httpDataSink)(Keep.both).run()
 
 
 
@@ -113,7 +117,7 @@ class ServerLayerTest extends TestKit(ActorSystem()) with Suite with FlatSpecLik
 
 
     // close & check data
-    senderPromise.success(None) // close the ws connection in one direction
+    senderPromise.isCompleted shouldEqual true // receiving of the response closes the connection
     val result: ByteString = Await.result(doneReceiving, 1.seconds)
 
     result.length shouldEqual testData.length
@@ -130,33 +134,31 @@ class ServerLayerTest extends TestKit(ActorSystem()) with Suite with FlatSpecLik
   val serverLayer: BidiFlow[HttpResponse, ByteString, ByteString, HttpRequest, NotUsed] =
     Http().serverLayer.atop(TLSPlacebo())
 
-  val websocketClientLayer: BidiFlow[Message, ByteString, ByteString, Message, Future[WebSocketUpgradeResponse]] =
-    Http().webSocketClientLayer(wsRequest).atop(TLSPlacebo())
+  val httpClientLayer: BidiFlow[HttpRequest, ByteString, ByteString, HttpResponse, NotUsed] =
+    Http().clientLayer(httpHost).atop(TLSPlacebo())
 
   def handler(httpRequest: HttpRequest): Future[HttpResponse] = {
     httpRequest match {
-      case request @ HttpRequest(HttpMethods.GET, uri: Uri, _, _, _) => upgrade(request)
+      case request @ HttpRequest(HttpMethods.POST, uri: Uri, _, _, _) => handle(request)
       case wrong: HttpRequest => {
         Future.successful(HttpResponse(StatusCodes.MethodNotAllowed, entity = "Method not allowed."))
       }
     }
   }
 
-  def upgrade(request: HttpRequest): Future[HttpResponse] = {
-    request.header[UpgradeToWebSocket] match {
-      case Some(upgrade) =>
-        val flow = Flow[Message].map(msg => {
-          counterMid.incrementAndGet()
-          msg
-        }).via(delayMessage)
-        Future.successful(upgrade.handleMessages(flow))
-      case None => {
-        Future.successful(HttpResponse(StatusCodes.BadRequest, entity = "Not a valid websocket request."))
-      }
-    }
+  def handle(request: HttpRequest): Future[HttpResponse] = {
+    // take input and throttle
+    val data = request.entity.dataBytes.map(msg => {
+      counterMid.incrementAndGet()
+      msg
+    }).via(delayMessage)
+
+    // wrap it back
+    val respEntity = HttpEntity(ContentTypes.`application/octet-stream`, data).withoutSizeLimit()
+    Future.successful(HttpResponse(entity = respEntity))
   }
 
-  private def delayMessage = Flow[Message].throttle(1, delay, 10, ThrottleMode.shaping)
+  private def delayMessage = Flow[ByteString].throttle(1, delay, 10, ThrottleMode.shaping)
 
   private def createTestData(sizeInMb: Int): ByteString = {
     val mb1 = Array.fill(1024 * 1024) {
