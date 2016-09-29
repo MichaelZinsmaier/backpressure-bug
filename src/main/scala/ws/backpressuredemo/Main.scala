@@ -13,7 +13,7 @@ import akka.http.scaladsl.model.HttpResponse
 import akka.http.scaladsl.model.StatusCodes
 import akka.http.scaladsl.model.Uri
 import akka.http.scaladsl.model.ws.Message
-import akka.http.scaladsl.model.ws.UpgradeToWebsocket
+import akka.http.scaladsl.model.ws.UpgradeToWebSocket
 import akka.stream.ActorMaterializer
 import akka.stream.scaladsl.Flow
 import akka.util.ByteString
@@ -76,7 +76,7 @@ object Main extends App {
   }
 
   def upgrade(request: HttpRequest): Future[HttpResponse] = {
-    request.header[UpgradeToWebsocket] match {
+    request.header[UpgradeToWebSocket] match {
       case Some(upgrade) =>
         val delayingFlow = Flow[Message].map(delayMessage)
         Future.successful(upgrade.handleMessages(delayingFlow))
